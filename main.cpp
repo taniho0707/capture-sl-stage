@@ -85,16 +85,51 @@ int main(int argc, char** argv){
 				if(pupcolor >= 110 && pupcolor < 150){
 					roicolor[2] = 255;
 					cout << ", color=red" << endl;
+					cv::rectangle(frame, roi_rect, roicolor, 3);
+					cv::rectangle(frame_broadcast, roi_rect, roicolor, 3);
 				} else if(pupcolor >= 90 && pupcolor < 110){
 					roicolor[2] = 255;
 					roicolor[1] = 130;
 					cout << ", color=orange" << endl;
+					cv::rectangle(frame, roi_rect, roicolor, 3);
+					cv::rectangle(frame_broadcast, roi_rect, roicolor, 3);
 				} else {
 					roicolor[1] = 255;
-					cout << ", color=green" << endl;
+					cout << ", color=green";
+					int16_t flag_l = 0;
+					int16_t flag_r = 0;
+					for(int i=template_single.rows; i<template_single.rows*5; ++i){
+						if(flag_r==0 && cropped_hsv.at<Vec3b>(max_pt.y+i, max_pt.x+(template_single.cols/2)+5)[1] > 100){
+							flag_r = -1;
+						} else if(flag_r == -1 && cropped_hsv.at<Vec3b>(max_pt.y+i, max_pt.x+(template_single.cols/2)+5)[1] < 100){
+							flag_r = 1;
+							break;
+						}
+						if(flag_l==0 && cropped_hsv.at<Vec3b>(max_pt.y+i, max_pt.x+(template_single.cols/2)-5)[1] > 100){
+							flag_l = -1;
+						} else if(flag_l == -1 && cropped_hsv.at<Vec3b>(max_pt.y+i, max_pt.x+(template_single.cols/2)-5)[1] < 100){
+							flag_l = 1;
+							break;
+						}
+					}
+					if(flag_l == 1){
+						cout << ":left" << endl;
+						cv::line(frame, Point(max_pt.x, max_pt.y+200+3/2*template_single.rows), Point(max_pt.x+template_single.cols, max_pt.y+200), roicolor, 3);
+						cv::line(frame, Point(max_pt.x, max_pt.y+200+3/2*template_single.rows), Point(max_pt.x+template_single.cols, max_pt.y+200+template_single.rows*3), roicolor, 3);
+						cv::line(frame, Point(max_pt.x+template_single.cols, max_pt.y+200), Point(max_pt.x+template_single.cols, max_pt.y+200+template_single.rows*3), roicolor, 3);
+						cv::line(frame_broadcast, Point(max_pt.x, max_pt.y+200+3/2*template_single.rows), Point(max_pt.x+template_single.cols, max_pt.y+200), roicolor, 3);
+						cv::line(frame_broadcast, Point(max_pt.x, max_pt.y+200+3/2*template_single.rows), Point(max_pt.x+template_single.cols, max_pt.y+200+template_single.rows*3), roicolor, 3);
+						cv::line(frame_broadcast, Point(max_pt.x+template_single.cols, max_pt.y+200), Point(max_pt.x+template_single.cols, max_pt.y+200+template_single.rows*3), roicolor, 3);
+					} else {
+						cout << ":right" << endl;
+						cv::line(frame, Point(max_pt.x, max_pt.y+200), Point(max_pt.x+template_single.cols, max_pt.y+200+template_single.rows/2*3), roicolor, 3);
+						cv::line(frame, Point(max_pt.x, max_pt.y+200+3*template_single.rows), Point(max_pt.x+template_single.cols, max_pt.y+200+template_single.rows/2*3), roicolor, 3);
+						cv::line(frame, Point(max_pt.x, max_pt.y+200), Point(max_pt.x, max_pt.y+200+template_single.rows*3), roicolor, 3);
+						cv::line(frame_broadcast, Point(max_pt.x, max_pt.y+200), Point(max_pt.x+template_single.cols, max_pt.y+200+template_single.rows/2*3), roicolor, 3);
+						cv::line(frame_broadcast, Point(max_pt.x, max_pt.y+200+3*template_single.rows), Point(max_pt.x+template_single.cols, max_pt.y+200+template_single.rows/2*3), roicolor, 3);
+						cv::line(frame_broadcast, Point(max_pt.x, max_pt.y+200), Point(max_pt.x, max_pt.y+200+template_single.rows*3), roicolor, 3);
+					}
 				}
-				cv::rectangle(frame, roi_rect, roicolor, 3);
-				cv::rectangle(frame_broadcast, roi_rect, roicolor, 3);
 			}
 			// show
 			imshow("hoge", frame);
