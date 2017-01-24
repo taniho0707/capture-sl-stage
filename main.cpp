@@ -59,6 +59,8 @@ int main(int argc, char** argv){
 			Mat cropped_img(frame, area_capture);
 			Mat frame_gray;
 			cvtColor(cropped_img, frame_gray, CV_RGB2GRAY);
+			Mat cropped_hsv;
+			cvtColor(cropped_img, cropped_hsv, CV_RGB2HSV);
 			matchTemplate(frame_gray, template_single, result_img, CV_TM_CCOEFF_NORMED);
 			Rect roi_rect(0, 0, template_single.cols, template_single.rows*3);
 			for(int i=0; i<10; i++){
@@ -66,8 +68,8 @@ int main(int argc, char** argv){
 				double maxVal;
 				Point max_pt;
 				minMaxLoc(result_img, NULL, &maxVal, NULL, &max_pt);
-				for(int k=max_pt.y-2; k<max_pt.y+3; ++k){
-					for(int l=max_pt.x-2; l<max_pt.x+3; ++l){
+				for(int k=max_pt.y-10; k<max_pt.y+11; ++k){
+					for(int l=max_pt.x-10; l<max_pt.x+11; ++l){
 						if(k >= 0 && k < result_img.size().height && l >= 0 && l < result_img.size().width)
 							result_img.at<float>(k, l) = 0.0f;
 					}
@@ -76,10 +78,23 @@ int main(int argc, char** argv){
 				if(maxVal < 0.75) break;
  				roi_rect.x = max_pt.x;
 				roi_rect.y = max_pt.y + 200;
-				std::cout << "(" << max_pt.x << ", " << max_pt.y << "), score=" << maxVal << std::endl;
+				cout << "(" << max_pt.x << ", " << max_pt.y << "), score=" << maxVal;
 				// 探索結果の場所に矩形を描画
-				cv::rectangle(frame, roi_rect, cv::Scalar(0,255,255), 3);
-				cv::rectangle(frame_broadcast, roi_rect, cv::Scalar(0,255,255), 3);
+				Scalar roicolor(0, 0, 0);
+				unsigned char pupcolor = cropped_hsv.at<Vec3b>(max_pt.y+(template_single.rows/2), max_pt.x+(template_single.cols/2))[0];
+				if(pupcolor >= 110 && pupcolor < 150){
+					roicolor[2] = 255;
+					cout << ", color=red" << endl;
+				} else if(pupcolor >= 90 && pupcolor < 110){
+					roicolor[2] = 255;
+					roicolor[1] = 130;
+					cout << ", color=orange" << endl;
+				} else {
+					roicolor[1] = 255;
+					cout << ", color=green" << endl;
+				}
+				cv::rectangle(frame, roi_rect, roicolor, 3);
+				cv::rectangle(frame_broadcast, roi_rect, roicolor, 3);
 			}
 			// show
 			imshow("hoge", frame);
