@@ -5,6 +5,10 @@
 using namespace std;
 using namespace cv;
 
+static int matching_height = 20; // パターンマッチングを行う領域の高さ(A)
+
+static float matching_score = 0.6; // パターンマッチ成功とみなす最小値
+
 int main(int argc, char** argv){
 	if(argc != 2){
 		cout << "Use: " << argv[0] << " movie" << endl;
@@ -31,7 +35,7 @@ int main(int argc, char** argv){
 	namedWindow("hoge");
 	uint32_t num_frame = 0;
 	Mat frame_base;
-	Rect area_capture(0, 200, 1280, 200);
+	Rect area_capture(0, 200, 1280, matching_height);
 	
 	while(1){
 		Mat frame;
@@ -46,10 +50,10 @@ int main(int argc, char** argv){
 			absdiff(frame, frame_base, frame_diff);
 			// 上から100pxを黒に
 			rectangle(frame, cv::Point(0,0), cv::Point(1279, 199), cv::Scalar(0,0,0), -1, 0);
-			rectangle(frame, cv::Point(0,400), cv::Point(1279, 719), cv::Scalar(0,0,0), -1, 0);
+			rectangle(frame, cv::Point(0,199+matching_height), cv::Point(1279, 719), cv::Scalar(0,0,0), -1, 0);
 			// 差分がある場合は元画像を表示
 			for(uint32_t i=0; i<1280; ++i){
-				for(uint32_t j=200; j<400; ++j){
+				for(uint32_t j=200; j<200+matching_height; ++j){
 					if(frame_diff.at<Vec3b>(j,i)[0] < 10 && frame_diff.at<Vec3b>(j,i)[1] < 10 && frame_diff.at<Vec3b>(j,i)[2] < 10) frame.at<Vec3b>(j,i) = Vec3b(0,0,0);
 				}
 			}
@@ -75,7 +79,7 @@ int main(int argc, char** argv){
 					}
 				}
 				// 一定スコア以下の場合は処理終了
-				if(maxVal < 0.75) break;
+				if(maxVal < matching_score) break;
  				roi_rect.x = max_pt.x;
 				roi_rect.y = max_pt.y + 200;
 				cout << "(" << max_pt.x << ", " << max_pt.y << "), score=" << maxVal;
