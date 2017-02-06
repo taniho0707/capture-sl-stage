@@ -1,16 +1,20 @@
 #include <iostream>
 #include <string>
+#include <vector>
+#include <iterator>
+
 #include <opencv2/opencv.hpp>
+#include <opencv2/tracking/tracker.hpp>
 
 using namespace std;
 using namespace cv;
 
 static int matching_height = 20; // パターンマッチングを行う領域の高さ(A)
 
-static float matching_score = 0.6; // パターンマッチ成功とみなす最小値
+static float matching_score = 0.65; // パターンマッチ成功とみなす最小値
 
 // template matching
-void testPattern(Mat& frame, Mat& frame_broadcast, Rect& area_capture, Mat& template_single){
+vector<Rect2d> testPattern(Mat& frame, Mat& frame_broadcast, Rect& area_capture, Mat& template_single){
 	Mat result_img;
 	Mat cropped_img(frame, area_capture);
 	Mat frame_gray;
@@ -19,6 +23,7 @@ void testPattern(Mat& frame, Mat& frame_broadcast, Rect& area_capture, Mat& temp
 	cvtColor(cropped_img, cropped_hsv, CV_RGB2HSV);
 	matchTemplate(frame_gray, template_single, result_img, CV_TM_CCOEFF_NORMED);
 	Rect roi_rect(0, 0, template_single.cols, template_single.rows*3);
+	vector<Rect2d> bbox;
 	for(int i=0; i<10; i++){
 		// 最大のスコアの場所を探す
 		double maxVal;
@@ -35,6 +40,8 @@ void testPattern(Mat& frame, Mat& frame_broadcast, Rect& area_capture, Mat& temp
 		roi_rect.x = max_pt.x;
 		roi_rect.y = max_pt.y + area_capture.y;
 		cout << "(" << max_pt.x << ", " << max_pt.y << "), score=" << maxVal;
+		// 返り値に追加
+		bbox.push_back(Rect2d(roi_rect.x, roi_rect.y, template_single.cols, template_single.rows));
 		// 探索結果の場所に矩形を描画
 		Scalar roicolor(0, 0, 0);
 		unsigned char pupcolor = cropped_hsv.at<Vec3b>(max_pt.y+(template_single.rows/2), max_pt.x+(template_single.cols/2))[0];
@@ -54,17 +61,19 @@ void testPattern(Mat& frame, Mat& frame_broadcast, Rect& area_capture, Mat& temp
 			cout << ", color=green";
 			int16_t flag_l = 0;
 			int16_t flag_r = 0;
-			for(int i=template_single.rows; i<template_single.rows*5; ++i){
-				if(flag_r==0 && cropped_hsv.at<Vec3b>(max_pt.y+i, max_pt.x+(template_single.cols/2)+5)[1] > 100){
-					flag_r = -1;
-				} else if(flag_r == -1 && cropped_hsv.at<Vec3b>(max_pt.y+i, max_pt.x+(template_single.cols/2)+5)[1] < 100){
-					flag_r = 1;
+			cout << endl;
+			for(int i=template_single.rows/2; i<template_single.rows*5; i+=1){
+				cout << (int)(cropped_hsv.at<Vec3b>(max_pt.y+i, max_pt.x+(template_single.cols/2)-5)[1]) << ", " << (int)(cropped_hsv.at<Vec3b>(max_pt.y+i, max_pt.x+(template_single.cols/2)+5)[1]) << endl;
+				if(flag_l==0 && cropped_hsv.at<Vec3b>(max_pt.y+i, max_pt.x+(template_single.cols/2)+5)[1] > 100){
+					flag_l = -1;
+				} else if(flag_l == -1 && cropped_hsv.at<Vec3b>(max_pt.y+i, max_pt.x+(template_single.cols/2)+5)[1] < 100){
+					flag_l = 1;
 					break;
 				}
-				if(flag_l==0 && cropped_hsv.at<Vec3b>(max_pt.y+i, max_pt.x+(template_single.cols/2)-5)[1] > 100){
-					flag_l = -1;
-				} else if(flag_l == -1 && cropped_hsv.at<Vec3b>(max_pt.y+i, max_pt.x+(template_single.cols/2)-5)[1] < 100){
-					flag_l = 1;
+				if(flag_r==0 && cropped_hsv.at<Vec3b>(max_pt.y+i, max_pt.x+(template_single.cols/2)-5)[1] > 100){
+					flag_r = -1;
+				} else if(flag_r == -1 && cropped_hsv.at<Vec3b>(max_pt.y+i, max_pt.x+(template_single.cols/2)-5)[1] < 100){
+					flag_r = 1;
 					break;
 				}
 			}
@@ -87,11 +96,12 @@ void testPattern(Mat& frame, Mat& frame_broadcast, Rect& area_capture, Mat& temp
 			}
 		}
 	}
+	return bbox;
 }
 
 int main(int argc, char** argv){
-	if(argc != 2){
-		cout << "Use: " << argv[0] << " movie" << endl;
+	if(argc != 2 && argc != 3){
+		cout << "Use: " << argv[0] << " filein [fileout]" << endl;
 		return -1;
 	}
 
@@ -109,14 +119,22 @@ int main(int argc, char** argv){
 		return -1;
 	}
 
-	// save to movie
-	// VideoWriter dst_movie("out.mp4", VideoWriter::fourcc('X','2','6','4'), 30.0, Size(1280,720));
+	bool is_store = false;
+	VideoWriter dst_movie;
+	if(argc == 3){
+		// save to movie
+		dst_movie.open(argv[2], VideoWriter::fourcc('X','2','6','4'), 30.0, Size(1280,720));
+		is_store = true;
+	}
 
 	namedWindow("hoge");
 	uint32_t num_frame = 0;
 	Mat frame_base;
 	Rect area_capture_a(0, 200, 1280, matching_height);
 	Rect area_capture_b(0, 300, 1280, matching_height);
+
+	vector< Ptr<Tracker> > tracker;
+	vector<Rect2d> tracked_bbox;
 
 	while(1){
 		Mat frame;
@@ -125,44 +143,63 @@ int main(int argc, char** argv){
 		if(frame.empty() || waitKey(30) >= 0 || src_movie.get(CV_CAP_PROP_POS_AVI_RATIO) == 1){
 			break;
 		}
-		if(num_frame == 513) frame_base = frame.clone();
-		if(num_frame > 513){
+		if(num_frame == 513){
+			frame_base = frame.clone();
+		} else if(num_frame > 513){
 			Mat frame_diff;
 			absdiff(frame, frame_base, frame_diff);
-			// 上から100pxを黒に
-			rectangle(frame, cv::Point(0,0), cv::Point(1279, 199), cv::Scalar(0,0,0), -1, 0);
+			// // 上から100pxを黒に
+			// rectangle(frame, cv::Point(0,0), cv::Point(1279, 199), cv::Scalar(0,0,0), -1, 0);
 			// rectangle(frame, cv::Point(0,199+matching_height), cv::Point(1279, 299), cv::Scalar(0,0,0), -1, 0);
-			rectangle(frame, cv::Point(0,299+matching_height), cv::Point(1279, 719), cv::Scalar(0,0,0), -1, 0);
+			// rectangle(frame, cv::Point(0,299+matching_height), cv::Point(1279, 719), cv::Scalar(0,0,0), -1, 0);
 			// 差分がある場合は元画像を表示
 			for(uint32_t i=0; i<1280; ++i){
-				for(uint32_t j=200; j<200+matching_height; ++j){
-					if(frame_diff.at<Vec3b>(j,i)[0] < 10 && frame_diff.at<Vec3b>(j,i)[1] < 10 && frame_diff.at<Vec3b>(j,i)[2] < 10) frame.at<Vec3b>(j,i) = Vec3b(0,0,0);
-				}
-			}
-			for(uint32_t i=0; i<1280; ++i){
-				for(uint32_t j=200+matching_height; j<300+matching_height; ++j){
+				for(uint32_t j=0; j<720; ++j){
 					if(frame_diff.at<Vec3b>(j,i)[0] < 10 && frame_diff.at<Vec3b>(j,i)[1] < 10 && frame_diff.at<Vec3b>(j,i)[2] < 10) frame.at<Vec3b>(j,i) = Vec3b(0,0,0);
 				}
 			}
 			putText(frame, to_string(num_frame), Point(10,40), FONT_HERSHEY_TRIPLEX, 1.5, Scalar(100,100,250), 2, CV_AA);
+			putText(frame_broadcast, to_string(num_frame), Point(10,40), FONT_HERSHEY_TRIPLEX, 1.5, Scalar(100,100,250), 2, CV_AA);
 
-			testPattern(frame, frame_broadcast, area_capture_a, template_single);
-			testPattern(frame, frame_broadcast, area_capture_b, template_single);
+			vector<Rect2d> bboxes = testPattern(frame, frame_broadcast, area_capture_a, template_single);
+
+			if(!bboxes.empty()){
+				Ptr<Tracker> tmp = Tracker::create("KCF");
+				tmp->init(frame, bboxes.at(0));
+				tracker.push_back(tmp);
+			}
+
+			tracked_bbox.clear();
+			for(auto ite = tracker.begin(); ite != tracker.end(); ++ite){
+				Rect2d tmp_bbox;
+				tmp_bbox.width = template_single.cols;
+				tmp_bbox.height = template_single.rows;
+				(*ite)->update(frame, tmp_bbox);
+				
+				if(tmp_bbox.y > 400) tracker.erase(ite);
+				else tracked_bbox.push_back(tmp_bbox);
+			}
+			
+			cout << "* tracked bbox" << endl;
+			for(auto i : tracked_bbox){
+				rectangle(frame, i, Scalar(0,0,255), 3);
+				cout << "x:" << (int)(i.x) << ", y" << (int)(i.y) << ", w" << (int)(i.width) << ", h" << (int)(i.height) << endl;
+			}
 
 			// show
-			imshow("hoge", frame_broadcast);
+			imshow("hoge", frame);
 		} else {
 			putText(frame, to_string(num_frame), Point(10,40), FONT_HERSHEY_TRIPLEX, 1.5, Scalar(100,100,250), 2, CV_AA);
 			imshow("hoge", frame);
 		}
 		// save to movie
-		// dst_movie << frame_broadcast;
+		if(is_store) dst_movie << frame_broadcast;
 		
 		++ num_frame;
 	}
 
 	// save to movie
-	// dst_movie.release();
+	if(is_store) dst_movie.release();
 	
 	return 0;
 }
