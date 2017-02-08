@@ -176,8 +176,11 @@ int main(int argc, char** argv){
 				tmp_bbox.height = template_single.rows;
 				(*ite)->update(frame, tmp_bbox);
 				
-				if(tmp_bbox.y > 400) tracker.erase(ite);
-				else tracked_bbox.push_back(tmp_bbox);
+				if(tmp_bbox.y > 400){
+					tracker.erase(ite--);
+				} else {
+					tracked_bbox.push_back(tmp_bbox);
+				}
 			}
 			
 			cout << "* tracked bbox" << endl;
