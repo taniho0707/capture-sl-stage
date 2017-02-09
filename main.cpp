@@ -9,12 +9,40 @@
 using namespace std;
 using namespace cv;
 
-static int matching_height = 20; // パターンマッチングを行う領域の高さ(A)
+enum class notetype : unsigned char {
+	SINGLE,
+	LONG_START,
+	LONG_END,
+	SLIDERIGHT_START,
+	SLIDERIGHT_CONT,
+	SLIDERIGHT_END,
+	SLIDELEFT_START,
+	SLIDELEFT_CONT,
+	SLIDELEFT_END,
+	ERROR = 15
+};
 
+typedef pair<notetype, Rect2d> TrackedNote_t;
+
+static int matching_height = 20; // パターンマッチングを行う領域の高さ(A)
 static float matching_score = 0.65; // パターンマッチ成功とみなす最小値
+static int tappoint_y = 598; // タップするラインのy座標
+
+
+Scalar getNotesColor(notetype type){
+	if(type == notetype::SINGLE){
+		return Scalar(0, 0, 255);
+	} else if(type == notetype::LONG_START || type == notetype::LONG_END){
+		return Scalar(0, 130, 255);
+	} else if(type == notetype::ERROR){
+		return Scalar(255, 255, 255);
+	} else {
+		return Scalar(0, 255, 0);
+	}
+}
 
 // template matching
-vector<Rect2d> testPattern(Mat& frame, Mat& frame_broadcast, Rect& area_capture, Mat& template_single){
+vector<TrackedNote_t> testPattern(Mat& frame, Mat& frame_broadcast, Rect& area_capture, Mat& template_single){
 	Mat result_img;
 	Mat cropped_img(frame, area_capture);
 	Mat frame_gray;
@@ -23,7 +51,7 @@ vector<Rect2d> testPattern(Mat& frame, Mat& frame_broadcast, Rect& area_capture,
 	cvtColor(cropped_img, cropped_hsv, CV_RGB2HSV);
 	matchTemplate(frame_gray, template_single, result_img, CV_TM_CCOEFF_NORMED);
 	Rect roi_rect(0, 0, template_single.cols, template_single.rows*3);
-	vector<Rect2d> bbox;
+	vector<TrackedNote_t> bbox;
 	for(int i=0; i<10; i++){
 		// 最大のスコアの場所を探す
 		double maxVal;
@@ -40,24 +68,23 @@ vector<Rect2d> testPattern(Mat& frame, Mat& frame_broadcast, Rect& area_capture,
 		roi_rect.x = max_pt.x;
 		roi_rect.y = max_pt.y + area_capture.y;
 		cout << "(" << max_pt.x << ", " << max_pt.y << "), score=" << maxVal;
-		// 返り値に追加
-		bbox.push_back(Rect2d(roi_rect.x, roi_rect.y, template_single.cols, template_single.rows));
 		// 探索結果の場所に矩形を描画
-		Scalar roicolor(0, 0, 0);
 		unsigned char pupcolor = cropped_hsv.at<Vec3b>(max_pt.y+(template_single.rows/2), max_pt.x+(template_single.cols/2))[0];
+		notetype type;
 		if(pupcolor >= 110 && pupcolor < 150){
-			roicolor[2] = 255;
+			Scalar roicolor = getNotesColor(notetype::SINGLE);
 			cout << ", color=red" << endl;
 			cv::rectangle(frame, roi_rect, roicolor, 3);
 			cv::rectangle(frame_broadcast, roi_rect, roicolor, 3);
+			type = notetype::SINGLE;
 		} else if(pupcolor >= 90 && pupcolor < 110){
-			roicolor[2] = 255;
-			roicolor[1] = 130;
+			Scalar roicolor = getNotesColor(notetype::LONG_START);
 			cout << ", color=orange" << endl;
 			cv::rectangle(frame, roi_rect, roicolor, 3);
 			cv::rectangle(frame_broadcast, roi_rect, roicolor, 3);
+			type = notetype::LONG_START;
 		} else {
-			roicolor[1] = 255;
+			Scalar roicolor = getNotesColor(notetype::SLIDELEFT_CONT);
 			cout << ", color=green";
 			int16_t flag_l = 0;
 			int16_t flag_r = 0;
@@ -85,6 +112,7 @@ vector<Rect2d> testPattern(Mat& frame, Mat& frame_broadcast, Rect& area_capture,
 				cv::line(frame_broadcast, Point(max_pt.x, max_pt.y+area_capture.y+3/2*template_single.rows), Point(max_pt.x+template_single.cols, max_pt.y+area_capture.y), roicolor, 3);
 				cv::line(frame_broadcast, Point(max_pt.x, max_pt.y+area_capture.y+3/2*template_single.rows), Point(max_pt.x+template_single.cols, max_pt.y+area_capture.y+template_single.rows*3), roicolor, 3);
 				cv::line(frame_broadcast, Point(max_pt.x+template_single.cols, max_pt.y+area_capture.y), Point(max_pt.x+template_single.cols, max_pt.y+area_capture.y+template_single.rows*3), roicolor, 3);
+				type = notetype::SLIDELEFT_CONT;
 			} else {
 				cout << ":right" << endl;
 				cv::line(frame, Point(max_pt.x, max_pt.y+area_capture.y), Point(max_pt.x+template_single.cols, max_pt.y+area_capture.y+template_single.rows/2*3), roicolor, 3);
@@ -93,8 +121,11 @@ vector<Rect2d> testPattern(Mat& frame, Mat& frame_broadcast, Rect& area_capture,
 				cv::line(frame_broadcast, Point(max_pt.x, max_pt.y+area_capture.y), Point(max_pt.x+template_single.cols, max_pt.y+area_capture.y+template_single.rows/2*3), roicolor, 3);
 				cv::line(frame_broadcast, Point(max_pt.x, max_pt.y+area_capture.y+3*template_single.rows), Point(max_pt.x+template_single.cols, max_pt.y+area_capture.y+template_single.rows/2*3), roicolor, 3);
 				cv::line(frame_broadcast, Point(max_pt.x, max_pt.y+area_capture.y), Point(max_pt.x, max_pt.y+area_capture.y+template_single.rows*3), roicolor, 3);
+				type = notetype::SLIDERIGHT_CONT;
 			}
 		}
+		// 返り値に追加
+		bbox.push_back(TrackedNote_t(type, Rect2d(roi_rect.x, roi_rect.y, template_single.cols, template_single.rows)));
 	}
 	return bbox;
 }
@@ -131,10 +162,10 @@ int main(int argc, char** argv){
 	uint32_t num_frame = 0;
 	Mat frame_base;
 	Rect area_capture_a(0, 200, 1280, matching_height);
-	Rect area_capture_b(0, 300, 1280, matching_height);
+	// Rect area_capture_b(0, 300, 1280, matching_height);
 
 	vector< Ptr<Tracker> > tracker;
-	vector<Rect2d> tracked_bbox;
+	vector<TrackedNote_t> tracked_bbox;
 
 	while(1){
 		Mat frame;
@@ -161,12 +192,14 @@ int main(int argc, char** argv){
 			putText(frame, to_string(num_frame), Point(10,40), FONT_HERSHEY_TRIPLEX, 1.5, Scalar(100,100,250), 2, CV_AA);
 			putText(frame_broadcast, to_string(num_frame), Point(10,40), FONT_HERSHEY_TRIPLEX, 1.5, Scalar(100,100,250), 2, CV_AA);
 
-			vector<Rect2d> bboxes = testPattern(frame, frame_broadcast, area_capture_a, template_single);
+			vector<TrackedNote_t> tracked_note = testPattern(frame, frame_broadcast, area_capture_a, template_single);
 
-			if(!bboxes.empty()){
-				Ptr<Tracker> tmp = Tracker::create("KCF");
-				tmp->init(frame, bboxes.at(0));
-				tracker.push_back(tmp);
+			if(!tracked_note.empty()){
+				for(auto ite = tracked_note.begin(); ite != tracked_note.end(); ++ite){
+					Ptr<Tracker> tmp = Tracker::create("KCF");
+					tmp->init(frame, (*ite).second);
+					tracker.push_back(tmp);
+				}
 			}
 
 			tracked_bbox.clear();
@@ -179,16 +212,21 @@ int main(int argc, char** argv){
 				if(tmp_bbox.y > 400){
 					tracker.erase(ite--);
 				} else {
-					tracked_bbox.push_back(tmp_bbox);
+					tracked_bbox.push_back(TrackedNote_t(/** @FIXME */notetype::SINGLE, tmp_bbox));
 				}
 			}
 			
-			cout << "* tracked bbox" << endl;
+			// cout << "\033[2J\033[0;0H* tracked bbox" << endl;
 			for(auto i : tracked_bbox){
-				rectangle(frame, i, Scalar(0,0,255), 3);
-				cout << "x:" << (int)(i.x) << ", y" << (int)(i.y) << ", w" << (int)(i.width) << ", h" << (int)(i.height) << endl;
+				rectangle(frame, i.second, getNotesColor(i.first), 3);
+				// cout << "x:" << (int)(i.second.x) << ", y" << (int)(i.second.y) << ", w" << (int)(i.second.width) << ", h" << (int)(i.second.height) << endl;
 			}
 
+			// 補助線の描画
+			line(frame, Point(0, 200), Point(1279, 200), Scalar(255, 255, 255), 1);
+			line(frame, Point(0, 220), Point(1279, 220), Scalar(255, 255, 255), 1);
+			line(frame, Point(0, tappoint_y), Point(1279, tappoint_y), Scalar(255, 255, 255), 3);
+			
 			// show
 			imshow("hoge", frame);
 		} else {
