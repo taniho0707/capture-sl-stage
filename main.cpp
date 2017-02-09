@@ -2,6 +2,7 @@
 #include <string>
 #include <vector>
 #include <iterator>
+#include <algorithm>
 
 #include <opencv2/opencv.hpp>
 #include <opencv2/tracking/tracker.hpp>
@@ -39,6 +40,18 @@ Scalar getNotesColor(notetype type){
 	} else {
 		return Scalar(0, 255, 0);
 	}
+}
+
+int calcTappointX(Rect2d pos1, Rect2d pos2){
+	// |    y = ax + b
+	// |
+	// -----> y
+	// |
+	// \/
+	// x
+	double a = (double)(pos2.x-pos1.x)/(pos2.y-pos1.y);
+	double b = (double)(pos1.x) - a*pos1.y;
+	return (int)(a*tappoint_y + b);
 }
 
 // template matching
@@ -199,22 +212,36 @@ int main(int argc, char** argv){
 					Ptr<Tracker> tmp = Tracker::create("KCF");
 					tmp->init(frame, (*ite).second);
 					tracker.push_back(tmp);
+					tracked_bbox.push_back(TrackedNote_t(ite->first, Rect2d(0, 0, ite->second.width, ite->second.height)));
 				}
 			}
 
-			tracked_bbox.clear();
+			vector<TrackedNote_t> tmp_tracked_bbox;
+			auto ite_sub = tracked_bbox.begin();
 			for(auto ite = tracker.begin(); ite != tracker.end(); ++ite){
-				Rect2d tmp_bbox;
-				tmp_bbox.width = template_single.cols;
-				tmp_bbox.height = template_single.rows;
-				(*ite)->update(frame, tmp_bbox);
+				Rect2d tmp_bbox = ite_sub->second;
+				if(tmp_bbox.x == 0 && tmp_bbox.y == 0){
+					(*ite)->update(frame, tmp_bbox);
+				} else {
+					Rect2d tmp_bbox_old = tmp_bbox;
+					(*ite)->update(frame, tmp_bbox);
+					cout << "** x= " << calcTappointX(tmp_bbox_old, tmp_bbox) << endl;
+					rectangle(frame, Rect2d(calcTappointX(tmp_bbox_old, tmp_bbox)-20, tappoint_y-20, 40, 40), getNotesColor(ite_sub->first), -1);
+					tracker.erase(ite--);
+					tracked_bbox.erase(ite_sub--);
+				}
 				
 				if(tmp_bbox.y > 400){
 					tracker.erase(ite--);
+					tracked_bbox.erase(ite_sub--);
 				} else {
-					tracked_bbox.push_back(TrackedNote_t(/** @FIXME */notetype::SINGLE, tmp_bbox));
+					tmp_tracked_bbox.push_back(TrackedNote_t(/** @FIXME */notetype::SINGLE, tmp_bbox));
 				}
+				++ite_sub;
 			}
+			tracked_bbox.clear();
+			copy(tmp_tracked_bbox.begin(), tmp_tracked_bbox.end(), back_inserter(tracked_bbox));
+			tmp_tracked_bbox.clear();
 			
 			// cout << "\033[2J\033[0;0H* tracked bbox" << endl;
 			for(auto i : tracked_bbox){
@@ -234,7 +261,8 @@ int main(int argc, char** argv){
 			imshow("hoge", frame);
 		}
 		// save to movie
-		if(is_store) dst_movie << frame_broadcast;
+		if(is_store) dst_movie << frame;
+		// if(is_store) dst_movie << frame_broadcast;
 		
 		++ num_frame;
 	}
