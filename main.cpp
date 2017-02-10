@@ -56,10 +56,19 @@ int calcTappointX(Rect2d pos1, Rect2d pos2){
 	return (int)(a*tappoint_y + b);
 }
 
-Mat calcLSM(Mat& a, Mat& b){
-	Mat dst;
-	solve(a, b, dst, DECOMP_SVD);
-	return dst;
+int calcLSM(vector<Point> p){
+	Vec4f dst;
+	fitLine(Mat(p), dst, CV_DIST_L1, 0, 0.01, 0.01);
+	return static_cast<int>(((tappoint_y-dst[2])*dst[1]/dst[0])+dst[3]);
+}
+
+int getNonZeroRows(Mat& mat){
+	for(int i=0; i<estimate_time; ++i){
+		if(mat.at<uint64_t>(i, 0) == 0){
+			return i;
+		}
+	}
+	return estimate_time;
 }
 
 // template matching
@@ -187,8 +196,7 @@ int main(int argc, char** argv){
 
 	vector< Ptr<Tracker> > tracker;
 	vector<TrackedNote_t> tracked_bbox;
-	vector<Mat> tracked_points_x;
-	vector<Mat> tracked_points_y;
+	vector< vector<Point> > tracked_points;
 
 	while(1){
 		Mat frame;
@@ -223,38 +231,39 @@ int main(int argc, char** argv){
 					tmp->init(frame, (*ite).second);
 					tracker.push_back(tmp);
 					tracked_bbox.push_back(TrackedNote_t(ite->first, Rect2d(0, 0, ite->second.width, ite->second.height)));
-					
-					Mat tmp_map_x(estimate_time, 2, CV_64FC1);
-					tmp_map_x.at<uint64_t>(tracked_bbox.size()-1, 1) = ite->second.y;
-					tracked_points_x.push_back(tmp_map_x);
-					Mat tmp_map_y(estimate_time, 1, CV_64FC1);
-					tmp_map_y.at<uint64_t>(tracked_bbox.size()-1, 1) = ite->second.x;
-					tracked_points_y.push_back(tmp_map_y);
+
+					vector<Point> tmp_vector_point;
+					Point tmp_point;
+					tmp_point.x = ite->second.y;
+					tmp_point.y = ite->second.x;
+					tmp_vector_point.push_back(tmp_point);
+					tracked_points.push_back(tmp_vector_point);
 				}
 			}
 
 			vector<TrackedNote_t> tmp_tracked_bbox;
 			auto ite_sub = tracked_bbox.begin();
+			auto ite_log = tracked_points.begin();
 			for(auto ite = tracker.begin(); ite != tracker.end(); ++ite){
 				Rect2d tmp_bbox = ite_sub->second;
+				(*ite)->update(frame, tmp_bbox);
 				if(tmp_bbox.x == 0 && tmp_bbox.y == 0){
-					(*ite)->update(frame, tmp_bbox);
-				} else {
-					Rect2d tmp_bbox_old = tmp_bbox;
-					(*ite)->update(frame, tmp_bbox);
-					cout << "** x= " << calcTappointX(tmp_bbox_old, tmp_bbox) << endl;
-					rectangle(frame, Rect2d(calcTappointX(tmp_bbox_old, tmp_bbox)-40, tappoint_y-40, 80, 80), getNotesColor(ite_sub->first), -1);
+				} else if(ite_log->size() == estimate_time){
+					int estimated_x_pos = calcLSM(*ite_log);
+					cout << "** x= " << estimated_x_pos << endl;
+					rectangle(frame, Rect2d(estimated_x_pos-40, tappoint_y-40, 80, 80), getNotesColor(ite_sub->first), -1);
 					tracker.erase(ite--);
 					tracked_bbox.erase(ite_sub--);
-				}
-				
-				if(tmp_bbox.y > 400){
-					tracker.erase(ite--);
-					tracked_bbox.erase(ite_sub--);
+					tracked_points.erase(ite_log--);
 				} else {
 					tmp_tracked_bbox.push_back(TrackedNote_t(ite_sub->first, tmp_bbox));
+					Point tmp_point;
+					tmp_point.x = tmp_bbox.y;
+					tmp_point.y = tmp_bbox.x;
+					ite_log->push_back(tmp_point);
 				}
 				++ite_sub;
+				++ite_log;
 			}
 			tracked_bbox.clear();
 			copy(tmp_tracked_bbox.begin(), tmp_tracked_bbox.end(), back_inserter(tracked_bbox));
