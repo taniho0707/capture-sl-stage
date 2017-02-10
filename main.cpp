@@ -29,6 +29,8 @@ static int matching_height = 20; // パターンマッチングを行う領域�
 static float matching_score = 0.65; // パターンマッチ成功とみなす最小値
 static int tappoint_y = 598; // タップするラインのy座標
 
+static int estimate_time = 10; // 最小二乗法に使うポイントの数
+
 
 Scalar getNotesColor(notetype type){
 	if(type == notetype::SINGLE){
@@ -52,6 +54,12 @@ int calcTappointX(Rect2d pos1, Rect2d pos2){
 	double a = (double)(pos2.x-pos1.x)/(pos2.y-pos1.y);
 	double b = (double)(pos1.x) - a*pos1.y;
 	return (int)(a*tappoint_y + b);
+}
+
+Mat calcLSM(Mat& a, Mat& b){
+	Mat dst;
+	solve(a, b, dst, DECOMP_SVD);
+	return dst;
 }
 
 // template matching
@@ -179,6 +187,8 @@ int main(int argc, char** argv){
 
 	vector< Ptr<Tracker> > tracker;
 	vector<TrackedNote_t> tracked_bbox;
+	vector<Mat> tracked_points_x;
+	vector<Mat> tracked_points_y;
 
 	while(1){
 		Mat frame;
@@ -213,6 +223,13 @@ int main(int argc, char** argv){
 					tmp->init(frame, (*ite).second);
 					tracker.push_back(tmp);
 					tracked_bbox.push_back(TrackedNote_t(ite->first, Rect2d(0, 0, ite->second.width, ite->second.height)));
+					
+					Mat tmp_map_x(estimate_time, 2, CV_64FC1);
+					tmp_map_x.at<uint64_t>(tracked_bbox.size()-1, 1) = ite->second.y;
+					tracked_points_x.push_back(tmp_map_x);
+					Mat tmp_map_y(estimate_time, 1, CV_64FC1);
+					tmp_map_y.at<uint64_t>(tracked_bbox.size()-1, 1) = ite->second.x;
+					tracked_points_y.push_back(tmp_map_y);
 				}
 			}
 
@@ -226,7 +243,7 @@ int main(int argc, char** argv){
 					Rect2d tmp_bbox_old = tmp_bbox;
 					(*ite)->update(frame, tmp_bbox);
 					cout << "** x= " << calcTappointX(tmp_bbox_old, tmp_bbox) << endl;
-					rectangle(frame, Rect2d(calcTappointX(tmp_bbox_old, tmp_bbox)-20, tappoint_y-20, 40, 40), getNotesColor(ite_sub->first), -1);
+					rectangle(frame, Rect2d(calcTappointX(tmp_bbox_old, tmp_bbox)-40, tappoint_y-40, 80, 80), getNotesColor(ite_sub->first), -1);
 					tracker.erase(ite--);
 					tracked_bbox.erase(ite_sub--);
 				}
@@ -235,7 +252,7 @@ int main(int argc, char** argv){
 					tracker.erase(ite--);
 					tracked_bbox.erase(ite_sub--);
 				} else {
-					tmp_tracked_bbox.push_back(TrackedNote_t(/** @FIXME */notetype::SINGLE, tmp_bbox));
+					tmp_tracked_bbox.push_back(TrackedNote_t(ite_sub->first, tmp_bbox));
 				}
 				++ite_sub;
 			}
