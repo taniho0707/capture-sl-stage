@@ -198,6 +198,9 @@ int main(int argc, char** argv){
 	vector<TrackedNote_t> tracked_bbox;
 	vector< vector<Point> > tracked_points;
 
+	// for twitter
+	vector< pair<int, pair<Point, notetype> > > drawing_reserve;
+
 	while(1){
 		Mat frame;
 		src_movie >> frame;
@@ -251,7 +254,9 @@ int main(int argc, char** argv){
 				} else if(ite_log->size() == estimate_time){
 					int estimated_x_pos = calcLSM(*ite_log);
 					cout << "** x= " << estimated_x_pos << endl;
-					rectangle(frame, Rect2d(estimated_x_pos-40, tappoint_y-40, 80, 80), getNotesColor(ite_sub->first), -1);
+					// rectangle(frame, Rect2d(estimated_x_pos-40, tappoint_y-40, 80, 80), getNotesColor(ite_sub->first), -1);
+					drawing_reserve.push_back(pair<int, pair<Point,notetype> >(num_frame+45, pair<Point,notetype>(Point(estimated_x_pos, tappoint_y), ite_sub->first)));
+
 					tracker.erase(ite--);
 					tracked_bbox.erase(ite_sub--);
 					tracked_points.erase(ite_log--);
@@ -286,9 +291,23 @@ int main(int argc, char** argv){
 			putText(frame, to_string(num_frame), Point(10,40), FONT_HERSHEY_TRIPLEX, 1.5, Scalar(100,100,250), 2, CV_AA);
 			imshow("hoge", frame);
 		}
+
+		// drawing reserved tapping
+		for(auto ite = drawing_reserve.begin(); ite != drawing_reserve.end(); ++ite){
+			if(ite->first >= (int)(num_frame) && ite->first <= (int)(num_frame+5)){
+				Rect2d tmp;
+				tmp.x = ite->second.first.x-40;
+				tmp.y = ite->second.first.y-40;
+				tmp.width = 80;
+				tmp.height = 80;
+				rectangle(frame_broadcast, tmp, getNotesColor(ite->second.second), -1);
+				if(ite->first == (int)(num_frame)) drawing_reserve.erase(ite--);
+			}
+		}
+
 		// save to movie
-		if(is_store) dst_movie << frame;
-		// if(is_store) dst_movie << frame_broadcast;
+		// if(is_store) dst_movie << frame;
+		if(is_store) dst_movie << frame_broadcast;
 		
 		++ num_frame;
 	}
