@@ -1,5 +1,6 @@
 #include <iostream>
 #include <string>
+#include <array>
 #include <vector>
 #include <iterator>
 #include <algorithm>
@@ -23,6 +24,16 @@ enum class notetype : unsigned char {
 	ERROR = 15
 };
 
+enum class noteline : uint8_t {
+	LEFT,
+	LEFTMIDDLE,
+	MIDDLE,
+	RIGHTMIDDLE,
+	RIGHT,
+	NONE = 7
+};
+
+
 typedef pair<notetype, Rect2d> TrackedNote_t;
 
 static int matching_height = 20; // パターンマッチングを行う領域の高さ(A)
@@ -30,6 +41,16 @@ static float matching_score = 0.65; // パターンマッチ成功とみなす�
 static int tappoint_y = 598; // タップするラインのy座標
 
 static int estimate_time = 10; // 最小二乗法に使うポイントの数
+
+static array< pair<int, int>, 5 > line_boundary{
+	pair<int,int>{0, 250},
+	pair<int,int>{251, 480},
+	pair<int,int>{481, 740},
+	pair<int,int>{741, 950},
+	pair<int,int>{951, 1279}
+};
+
+static array<int, 5> line_pos{ 215, 431, 640, 856, 1066 };
 
 
 Scalar getNotesColor(notetype type){
@@ -60,6 +81,18 @@ int calcLSM(vector<Point> p){
 	Vec4f dst;
 	fitLine(Mat(p), dst, CV_DIST_L1, 0, 0.01, 0.01);
 	return static_cast<int>(((tappoint_y-dst[2])*dst[1]/dst[0])+dst[3]);
+}
+
+int adjustEstimatedPos(int real){
+	int estimated = 255; // big number
+	for(int i=0; i<5; ++i){
+		if(real >= line_boundary.at(i).first && real < line_boundary.at(i).second){
+			estimated = i;
+			break;
+		}
+	}
+	if(estimated == 255) return 0;
+	else return line_pos.at(estimated);
 }
 
 int getNonZeroRows(Mat& mat){
@@ -252,9 +285,11 @@ int main(int argc, char** argv){
 				(*ite)->update(frame, tmp_bbox);
 				if(tmp_bbox.x == 0 && tmp_bbox.y == 0){
 				} else if(ite_log->size() == estimate_time){
+					// add notes to score(queue)
 					int estimated_x_pos = calcLSM(*ite_log);
 					cout << "** x= " << estimated_x_pos << endl;
 					// rectangle(frame, Rect2d(estimated_x_pos-40, tappoint_y-40, 80, 80), getNotesColor(ite_sub->first), -1);
+					estimated_x_pos = adjustEstimatedPos(estimated_x_pos);
 					drawing_reserve.push_back(pair<int, pair<Point,notetype> >(num_frame+45, pair<Point,notetype>(Point(estimated_x_pos, tappoint_y), ite_sub->first)));
 
 					tracker.erase(ite--);
@@ -300,7 +335,7 @@ int main(int argc, char** argv){
 				tmp.y = ite->second.first.y-40;
 				tmp.width = 80;
 				tmp.height = 80;
-				rectangle(frame_broadcast, tmp, getNotesColor(ite->second.second), -1);
+				if(tmp.x != -40) rectangle(frame_broadcast, tmp, getNotesColor(ite->second.second), -1);
 				if(ite->first == (int)(num_frame)) drawing_reserve.erase(ite--);
 			}
 		}
